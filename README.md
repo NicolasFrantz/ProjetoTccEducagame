@@ -1,20 +1,47 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+🎮 Educagame
 
-# Run and deploy your AI Studio app
+Educagame é uma plataforma educacional gamificada desenvolvida para auxiliar no aprendizado de crianças das séries iniciais. O projeto utiliza elementos de jogos para tornar o aprendizado mais divertido, interativo e eficaz, podendo ser utilizado tanto por professores quanto por pais ou responsáveis.
 
-This contains everything you need to run your app locally.
+📚 Objetivo do Projeto
 
-View your app in AI Studio: https://ai.studio/apps/drive/1gNyX71DLlgM_a_fIzLIWPo_rg9qTjXCj
+Tornar o aprendizado mais atrativo por meio da gamificação
 
-## Run Locally
+Auxiliar crianças no desenvolvimento de habilidades educacionais básicas
 
-**Prerequisites:**  Node.js
+Apoiar professores e pais no acompanhamento do progresso das crianças
 
+Incentivar o aprendizado de forma lúdica, intuitiva e acessível
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+👥 Público-alvo
+
+👧🧒 Crianças das séries iniciais do ensino fundamental
+
+👩‍🏫 Professores
+
+👨‍👩‍👧 Pais e responsáveis
+
+🕹️ Funcionalidades
+
+Jogos educativos interativos
+
+Sistema de pontuação e recompensas
+
+Acompanhamento do progresso do aluno
+
+Conteúdos organizados por nível de aprendizagem
+
+Interface amigável e adaptada para crianças
+
+Uso educacional tanto em casa quanto na escola
+
+🧰 Tecnologias Utilizadas
+
+React com TypeScript
+
+Tailwind CSS
+
+CSS
+
+Vite (se aplicável)
+
+Node.js (para ambiente de desenvolvimento)
