@@ -1,47 +1,47 @@
-🎮 Educagame
+<h1 align="center">🎮 Educagame</h1>
 
-Educagame é uma plataforma educacional gamificada desenvolvida para auxiliar no aprendizado de crianças das séries iniciais. O projeto utiliza elementos de jogos para tornar o aprendizado mais divertido, interativo e eficaz, podendo ser utilizado tanto por professores quanto por pais ou responsáveis.
+<p align="center">
+  <strong>Educagame</strong> é uma plataforma educacional <em>gamificada</em> desenvolvida para ajudar no aprendizado de <strong>crianças das séries iniciais</strong>.
+</p>
 
-📚 Objetivo do Projeto
 
-Tornar o aprendizado mais atrativo por meio da gamificação
+---
 
-Auxiliar crianças no desenvolvimento de habilidades educacionais básicas
+## 📚 Objetivo do Projeto
 
-Apoiar professores e pais no acompanhamento do progresso das crianças
+- Tornar o aprendizado mais atrativo e eficaz por meio da **gamificação**  
+- Auxiliar crianças no desenvolvimento de habilidades educacionais básicas  
+- Oferecer uma ferramenta de apoio para **professores** e **pais**  
+- Estimular o aprendizado de forma lúdica, interativa e acessível  
 
-Incentivar o aprendizado de forma lúdica, intuitiva e acessível
+---
 
-👥 Público-alvo
+## 👥 Público-alvo
 
-👧🧒 Crianças das séries iniciais do ensino fundamental
+- 👧🧒 **Crianças** das séries iniciais do ensino fundamental  
+- 👩‍🏫 **Professores**  
+- 👨‍👩‍👧 **Pais e responsáveis**
 
-👩‍🏫 Professores
+---
 
-👨‍👩‍👧 Pais e responsáveis
+## 🕹️ Funcionalidades
 
-🕹️ Funcionalidades
+<div align="left">
+  <ul>
+    <li>🎮 Jogos educativos interativos</li>
+    <li>🏆 Sistema de pontuação e recompensas</li>
+    <li>📊 Acompanhamento do progresso da criança</li>
+    <li>📚 Conteúdos educativos organizados por série</li>
+    <li>👶 Interface amigável e adaptada para crianças</li>
+    <li>🏠 Uso tanto em casa quanto na escola</li>
+  </ul>
+</div>
 
-Jogos educativos interativos
+---
 
-Sistema de pontuação e recompensas
+## 🧰 Tecnologias Utilizadas
 
-Acompanhamento do progresso do aluno
+- **React** com **TypeScript**  
+- **Tailwind CSS** para estilização  
 
-Conteúdos organizados por nível de aprendizagem
-
-Interface amigável e adaptada para crianças
-
-Uso educacional tanto em casa quanto na escola
-
-🧰 Tecnologias Utilizadas
-
-React com TypeScript
-
-Tailwind CSS
-
-CSS
-
-Vite (se aplicável)
-
-Node.js (para ambiente de desenvolvimento)
+---
