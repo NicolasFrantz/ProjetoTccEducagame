@@ -1,0 +1,5 @@
+{
+  "name": "Educagame",
+  "description": "Uma plataforma gamificada de educação infantil onde professores criam quizzes com IA, alunos ganham pontos e diretores gerenciam a escola.",
+  "requestFramePermissions": []
+}
