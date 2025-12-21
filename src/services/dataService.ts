@@ -1,3 +1,4 @@
+
 import { User, UserRole, Quiz, QuizResult, SchoolClass, School } from '../types';
 
 // Escolas Iniciais
@@ -130,8 +131,14 @@ export const dataService = {
   getQuizzes: () => get<Quiz[]>('quizzes', INITIAL_QUIZZES),
   saveQuiz: (quiz: Quiz) => {
     const quizzes = get<Quiz[]>('quizzes', INITIAL_QUIZZES);
-    quizzes.push(quiz);
+    const idx = quizzes.findIndex(q => q.id === quiz.id);
+    if (idx >= 0) quizzes[idx] = quiz;
+    else quizzes.push(quiz);
     set('quizzes', quizzes);
+  },
+  deleteQuiz: (id: string) => {
+    const quizzes = get<Quiz[]>('quizzes', INITIAL_QUIZZES);
+    set('quizzes', quizzes.filter(q => q.id !== id));
   },
 
   getResults: () => get<QuizResult[]>('results', []),

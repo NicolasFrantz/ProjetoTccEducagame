@@ -43,7 +43,9 @@ import {
   Layers, 
   Timer, 
   Menu,
-  Filter
+  Filter,
+  Library,
+  Pencil
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, CartesianGrid, YAxis } from 'recharts';
 
@@ -157,7 +159,9 @@ const Sidebar = ({ currentUser, setView, currentView, onLogout, className = "", 
      menuItems = [
         { show: true, label: 'Nossa Casa', icon: Home, view: 'DASHBOARD_STAFF' },
         { show: true, label: 'Meus Filhos', icon: Baby, view: 'MANAGE_USERS' },
+        { show: true, label: 'Relatórios', icon: BarChartIcon, view: 'REPORTS' },
         { show: true, label: 'Criar Tarefa', icon: Sparkles, view: 'CREATE_QUIZ' },
+        { show: true, label: 'Atividades', icon: Library, view: 'MANAGE_QUIZZES' }, 
         { show: false, label: '', icon: Trophy, view: 'LEADERBOARD' }, 
      ];
   } else if (isStaff) {
@@ -167,6 +171,7 @@ const Sidebar = ({ currentUser, setView, currentView, onLogout, className = "", 
         { show: true, label: 'Matricular Aluno', icon: UserPlus, view: 'ENROLL_STUDENT' },
         { show: true, label: 'Turmas', icon: Grid3X3, view: 'MANAGE_CLASSES' },
         { show: true, label: 'Relatórios', icon: BarChartIcon, view: 'REPORTS' },
+        { show: true, label: 'Atividades', icon: Library, view: 'MANAGE_QUIZZES' },
         { show: true, label: 'Planejamento', icon: PenTool, view: 'CREATE_QUIZ' },
         { show: true, label: 'Ranking', icon: Trophy, view: 'LEADERBOARD' },
      ];
@@ -833,7 +838,7 @@ const QuizPlayer = ({ quiz, student, onComplete, onExit }: { quiz: Quiz, student
   );
 };
 
-const CreateQuizView = ({ currentUser, onSuccess }: { currentUser: User, onSuccess: () => void }) => {
+const CreateQuizView = ({ currentUser, quizToEdit, onSuccess }: { currentUser: User, quizToEdit: Quiz | null, onSuccess: () => void }) => {
   const [topic, setTopic] = useState('');
   const [subject, setSubject] = useState(SUBJECTS[0]);
   const [targetGrade, setTargetGrade] = useState(3);
@@ -851,6 +856,20 @@ const CreateQuizView = ({ currentUser, onSuccess }: { currentUser: User, onSucce
   const [manualOptions, setManualOptions] = useState(['', '', '', '']);
   const [manualCorrectIdx, setManualCorrectIdx] = useState(0);
   const [manualExplanation, setManualExplanation] = useState('');
+
+  // FILL FORM IF EDITING
+  useEffect(() => {
+    if (quizToEdit) {
+        const titleParts = quizToEdit.title.split(': ');
+        const extractedTopic = titleParts.length > 1 ? titleParts[1] : quizToEdit.title;
+        setTopic(extractedTopic);
+        setSubject(quizToEdit.subject);
+        setTargetGrade(quizToEdit.targetGrade || 3);
+        setDifficulty(quizToEdit.difficulty);
+        setDescription(quizToEdit.description);
+        setQuestions(quizToEdit.questions);
+    }
+  }, [quizToEdit]);
 
   const handleGenerateAI = async () => {
     if (!topic) return alert('Por favor digite um tópico para a IA.');
@@ -898,7 +917,7 @@ const CreateQuizView = ({ currentUser, onSuccess }: { currentUser: User, onSucce
     if (!topic) return alert("Dê um título/tópico ao quiz.");
 
     const newQuiz: Quiz = {
-      id: `quiz-${Date.now()}`,
+      id: quizToEdit ? quizToEdit.id : `quiz-${Date.now()}`, // Keep existing ID if editing
       title: `${subject}: ${topic}`,
       description: description || `Quiz para ${targetGrade}º ano`,
       subject,
@@ -906,7 +925,7 @@ const CreateQuizView = ({ currentUser, onSuccess }: { currentUser: User, onSucce
       targetGrade,
       questions,
       createdBy: currentUser.id,
-      createdAt: Date.now()
+      createdAt: quizToEdit ? quizToEdit.createdAt : Date.now()
     };
 
     dataService.saveQuiz(newQuiz);
@@ -921,7 +940,8 @@ const CreateQuizView = ({ currentUser, onSuccess }: { currentUser: User, onSucce
       <div className="lg:col-span-7 space-y-6">
         <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
           <h3 className="text-xl font-display font-black text-slate-800 mb-6 flex items-center gap-2">
-            <PenTool className={`w-6 h-6 ${isParent ? 'text-orange-500' : 'text-primary'}`} /> {isParent ? 'Criar Tarefa de Casa' : 'Criar Atividade'}
+            <PenTool className={`w-6 h-6 ${isParent ? 'text-orange-500' : 'text-primary'}`} /> 
+            {quizToEdit ? 'Editar Atividade' : (isParent ? 'Criar Tarefa de Casa' : 'Criar Nova Atividade')}
           </h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1124,7 +1144,7 @@ const CreateQuizView = ({ currentUser, onSuccess }: { currentUser: User, onSucce
                     className="w-full py-4 shadow-xl shadow-green-200"
                     disabled={questions.length === 0}
                 >
-                    Salvar {isParent ? 'Tarefa' : 'Atividade'}
+                    {quizToEdit ? 'Atualizar Atividade' : (isParent ? 'Salvar Tarefa' : 'Salvar Atividade')}
                 </Button>
             </div>
         </div>
@@ -1132,6 +1152,130 @@ const CreateQuizView = ({ currentUser, onSuccess }: { currentUser: User, onSucce
     </div>
   );
 };
+
+// NEW COMPONENT: MANAGE QUIZZES
+const ManageQuizzesView = ({ onEdit, onCreate }: { onEdit: (quiz: Quiz) => void, onCreate: () => void }) => {
+    const [quizzes, setQuizzes] = useState(dataService.getQuizzes());
+    const [searchTerm, setSearchTerm] = useState('');
+    const [quizToDelete, setQuizToDelete] = useState<Quiz | null>(null);
+
+    const executeDelete = () => {
+        if (quizToDelete) {
+            dataService.deleteQuiz(quizToDelete.id);
+            setQuizzes(dataService.getQuizzes());
+            setQuizToDelete(null);
+            playSound('click');
+        }
+    };
+
+    const filteredQuizzes = quizzes.filter(q => 
+        q.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        q.subject.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    return (
+        <div className="max-w-6xl mx-auto space-y-8 relative">
+            {/* Custom Confirmation Modal */}
+            {quizToDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border-4 border-red-50 transform transition-all scale-100">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-6">
+                                <Trash className="w-10 h-10 text-red-500" />
+                            </div>
+                            <h3 className="text-2xl font-display font-black text-slate-800 mb-2">Excluir Atividade?</h3>
+                            <p className="text-slate-500 font-medium mb-8 leading-relaxed">
+                                Você tem certeza que deseja remover <span className="font-bold text-slate-800">"{quizToDelete.title}"</span>? 
+                                <br/><span className="text-xs text-red-400 font-bold mt-2 block">ESSA AÇÃO NÃO PODE SER DESFEITA.</span>
+                            </p>
+                            <div className="flex gap-3 w-full">
+                                <Button 
+                                    variant="outline" 
+                                    onClick={() => setQuizToDelete(null)}
+                                    className="flex-1 border-slate-200"
+                                >
+                                    Cancelar
+                                </Button>
+                                <Button 
+                                    variant="danger" 
+                                    onClick={executeDelete}
+                                    className="flex-1 shadow-red-200"
+                                >
+                                    Sim, Excluir
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h2 className="text-3xl font-display font-black text-slate-800">Atividades Salvas</h2>
+                    <p className="text-slate-400 font-bold">Gerencie seus planejamentos e quizzes.</p>
+                </div>
+                <div className="flex gap-4 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-80">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                        <input 
+                            placeholder="Buscar atividade..." 
+                            className="w-full pl-12 pr-4 py-3 rounded-xl bg-white border border-slate-200 focus:border-indigo-500 outline-none font-bold text-slate-700"
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                    <Button onClick={onCreate} variant="primary" className="shadow-lg whitespace-nowrap">
+                        <Plus className="w-5 h-5" /> Nova
+                    </Button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredQuizzes.length === 0 ? (
+                    <div className="col-span-full text-center py-20 bg-white rounded-[2rem] border border-dashed border-slate-200">
+                        <Library className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                        <p className="text-slate-400 font-bold">Nenhuma atividade encontrada.</p>
+                    </div>
+                ) : (
+                    filteredQuizzes.map(quiz => (
+                        <div key={quiz.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden flex flex-col h-full">
+                            <div className="flex justify-between items-start mb-4">
+                                <span className={`text-[10px] uppercase font-black px-2 py-1 rounded-lg ${quiz.difficulty === 'Fácil' ? 'bg-green-100 text-green-700' : quiz.difficulty === 'Médio' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                    {quiz.difficulty}
+                                </span>
+                                <div className="flex items-center gap-2 text-slate-500 text-xs font-bold bg-slate-50 px-2 py-1 rounded-lg">
+                                    <BookOpen className="w-3 h-3" />
+                                    <span>{quiz.questions.length} Qst</span>
+                                </div>
+                            </div>
+                            
+                            <div className="flex-1 mb-6">
+                                <h3 className="font-display font-black text-xl text-slate-800 mb-1 line-clamp-2 leading-tight">{quiz.title}</h3>
+                                <p className="text-xs font-bold text-slate-400 uppercase">{quiz.subject} • {quiz.targetGrade}º Ano</p>
+                            </div>
+                            
+                            <div className="flex gap-3 pt-4 border-t border-slate-50">
+                                <button 
+                                    onClick={() => { onEdit(quiz); playSound('click'); }}
+                                    className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-indigo-50 text-indigo-600 font-bold text-sm hover:bg-indigo-100 transition-colors"
+                                >
+                                    <Pencil className="w-4 h-4" /> Editar
+                                </button>
+                                <button 
+                                    onClick={() => setQuizToDelete(quiz)}
+                                    className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-red-50 text-red-500 font-bold text-sm hover:bg-red-100 transition-colors"
+                                >
+                                    <Trash className="w-4 h-4" /> Excluir
+                                </button>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
 
 const ManageClassesView = () => {
     const [classes, setClasses] = useState(dataService.getClasses()); const [grade, setGrade] = useState(1); const [className, setClassName] = useState('');
@@ -1572,32 +1716,43 @@ const LeaderboardView = ({ currentUser }: { currentUser: User }) => {
   );
 };
 
-const ReportsView = () => {
+const ReportsView = ({ currentUser }: { currentUser?: User }) => {
     // 1. Get Data
     const results = dataService.getResults();
     const quizzes = dataService.getQuizzes();
-    const users = dataService.getUsers(); // We need users to filter by Grade/Class
+    const users = dataService.getUsers(); 
     const classes = dataService.getClasses();
+
+    // Determine if Parent mode
+    const isParent = currentUser?.role === UserRole.PARENT;
+    const parentChildren = isParent ? users.filter(u => u.parentIds?.includes(currentUser?.id || '')) : [];
 
     // 2. State for Filters
     const [filterGrade, setFilterGrade] = useState<number | 'ALL'>('ALL');
     const [filterClass, setFilterClass] = useState<string>('ALL');
+    // Parent specific filter (optional, default to ALL children or a specific child ID)
+    const [filterChildId, setFilterChildId] = useState<string>('ALL');
 
     // 3. Filter Logic
     const filteredResults = results.filter(r => {
         const student = users.find(u => u.id === r.studentId);
         if (!student) return false;
 
-        // Check Grade
-        if (filterGrade !== 'ALL' && student.grade !== filterGrade) return false;
-        
-        // Check Class
-        if (filterClass !== 'ALL' && student.classGroup !== filterClass) return false;
+        if (isParent) {
+            // Must be one of the parent's children
+            if (!parentChildren.find(c => c.id === student.id)) return false;
+            // Apply child filter if selected
+            if (filterChildId !== 'ALL' && student.id !== filterChildId) return false;
+        } else {
+            // Teacher filters
+            if (filterGrade !== 'ALL' && student.grade !== filterGrade) return false;
+            if (filterClass !== 'ALL' && student.classGroup !== filterClass) return false;
+        }
 
         return true;
     });
     
-    // 4. Calculate Stats based on FILTERED results
+    // 4. Calculate Stats
     const totalQuizzesTaken = filteredResults.length;
     const avgScore = totalQuizzesTaken > 0 ? filteredResults.reduce((a, b) => a + b.score, 0) / totalQuizzesTaken : 0;
     
@@ -1616,15 +1771,22 @@ const ReportsView = () => {
         score: Math.round(subjectScores[sub].total / subjectScores[sub].count)
     }));
 
-    // Logic to show available classes based on selected grade
     const availableClasses = classes.filter(c => filterGrade === 'ALL' || c.grade === filterGrade);
 
     // 5. Prepare Detailed List Data
     const detailedResults = filteredResults.map(r => {
         const student = users.find(u => u.id === r.studentId);
         const quiz = quizzes.find(q => q.id === r.quizId);
+
+        let progressLabel = "(0/0)";
+        if (student && student.grade) {
+             const availableCount = quizzes.filter(q => q.targetGrade === student.grade).length;
+             const takenCount = new Set(results.filter(res => res.studentId === student.id).map(res => res.quizId)).size;
+             progressLabel = `(${takenCount}/${availableCount})`;
+        }
+
         return {
-            id: `${r.studentId}-${r.quizId}-${r.date}`, // unique composite key
+            id: `${r.studentId}-${r.quizId}-${r.date}`,
             studentName: student?.name || 'Aluno Removido',
             quizTitle: quiz?.title || 'Atividade Removida',
             score: r.score,
@@ -1632,14 +1794,18 @@ const ReportsView = () => {
             date: new Date(r.date).toLocaleDateString('pt-BR'),
             timestamp: r.date,
             grade: student?.grade,
-            classGroup: student?.classGroup
+            classGroup: student?.classGroup,
+            progressLabel
         };
-    }).sort((a, b) => b.timestamp - a.timestamp); // Sort by newest first
+    }).sort((a, b) => b.timestamp - a.timestamp);
 
     return (
          <div className="max-w-5xl mx-auto space-y-8 pb-10">
             <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
-                <h2 className="text-3xl font-display font-black text-slate-800">Relatórios de Desempenho</h2>
+                <div>
+                    <h2 className="text-3xl font-display font-black text-slate-800">Relatórios de Desempenho</h2>
+                    <p className="text-slate-500 font-bold">{isParent ? 'Acompanhe a jornada dos seus filhos.' : 'Visão geral da escola.'}</p>
+                </div>
                 
                 {/* FILTER BAR */}
                 <div className="flex flex-col md:flex-row gap-4 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm w-full md:w-auto">
@@ -1648,35 +1814,48 @@ const ReportsView = () => {
                         <span className="text-xs font-black text-slate-400 uppercase">Filtros:</span>
                     </div>
                     
-                    <select 
-                        value={filterGrade} 
-                        onChange={e => {
-                            const val = e.target.value === 'ALL' ? 'ALL' : parseInt(e.target.value);
-                            setFilterGrade(val as any);
-                            setFilterClass('ALL'); // Reset class on grade change
-                        }}
-                        className="p-2 rounded-lg bg-slate-50 border border-slate-200 font-bold text-slate-600 text-sm outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                        <option value="ALL">Todas as Séries</option>
-                        {[1, 2, 3, 4, 5].map(g => <option key={g} value={g}>{g}º Ano</option>)}
-                    </select>
+                    {isParent ? (
+                         <select 
+                            value={filterChildId} 
+                            onChange={e => setFilterChildId(e.target.value)}
+                            className="p-2 rounded-lg bg-slate-50 border border-slate-200 font-bold text-slate-600 text-sm outline-none focus:border-indigo-500 cursor-pointer w-full md:w-auto"
+                        >
+                            <option value="ALL">Todos os Filhos</option>
+                            {parentChildren.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                    ) : (
+                        <>
+                            <select 
+                                value={filterGrade} 
+                                onChange={e => {
+                                    const val = e.target.value === 'ALL' ? 'ALL' : parseInt(e.target.value);
+                                    setFilterGrade(val as any);
+                                    setFilterClass('ALL'); 
+                                }}
+                                className="p-2 rounded-lg bg-slate-50 border border-slate-200 font-bold text-slate-600 text-sm outline-none focus:border-indigo-500 cursor-pointer"
+                            >
+                                <option value="ALL">Todas as Séries</option>
+                                {[1, 2, 3, 4, 5].map(g => <option key={g} value={g}>{g}º Ano</option>)}
+                            </select>
 
-                    <div className="w-px h-8 bg-slate-100 hidden md:block"></div>
+                            <div className="w-px h-8 bg-slate-100 hidden md:block"></div>
 
-                    <select 
-                        value={filterClass} 
-                        onChange={e => setFilterClass(e.target.value)}
-                        className="p-2 rounded-lg bg-slate-50 border border-slate-200 font-bold text-slate-600 text-sm outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                        <option value="ALL">Todas as Turmas</option>
-                        {availableClasses.map(c => <option key={c.id} value={c.name}>{c.name} ({c.grade}º)</option>)}
-                    </select>
+                            <select 
+                                value={filterClass} 
+                                onChange={e => setFilterClass(e.target.value)}
+                                className="p-2 rounded-lg bg-slate-50 border border-slate-200 font-bold text-slate-600 text-sm outline-none focus:border-indigo-500 cursor-pointer"
+                            >
+                                <option value="ALL">Todas as Turmas</option>
+                                {availableClasses.map(c => <option key={c.id} value={c.name}>{c.name} ({c.grade}º)</option>)}
+                            </select>
+                        </>
+                    )}
                 </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-                    <p className="text-slate-400 font-bold text-xs uppercase mb-2">Total de Atividades</p>
+                    <p className="text-slate-400 font-bold text-xs uppercase mb-2">Total de Atividades Feitas</p>
                     <p className="text-4xl font-black text-primary">{totalQuizzesTaken}</p>
                     <p className="text-xs font-medium text-slate-400 mt-2">Neste filtro</p>
                 </div>
@@ -1690,11 +1869,6 @@ const ReportsView = () => {
             <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm h-96">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-lg text-slate-700">Desempenho por Matéria</h3>
-                    {(filterGrade !== 'ALL' || filterClass !== 'ALL') && (
-                        <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full">
-                            Filtrado: {filterGrade !== 'ALL' ? `${filterGrade}º Ano` : ''} {filterClass !== 'ALL' ? `- Turma ${filterClass}` : ''}
-                        </span>
-                    )}
                 </div>
                 {chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="80%">
@@ -1719,7 +1893,7 @@ const ReportsView = () => {
 
             {/* Detailed Results Table */}
             <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                <h3 className="font-bold text-lg text-slate-700 mb-6">Detalhamento por Aluno</h3>
+                <h3 className="font-bold text-lg text-slate-700 mb-6">Detalhamento por Atividade</h3>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead>
@@ -1735,8 +1909,12 @@ const ReportsView = () => {
                                 <tr key={item.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
                                     <td className="py-4 text-slate-500 font-bold text-sm">{item.date}</td>
                                     <td className="py-4">
-                                        <p className="font-black text-slate-700">{item.studentName}</p>
-                                        <p className="text-xs text-slate-400 font-bold">{item.grade}º - {item.classGroup}</p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="font-black text-slate-700">{item.studentName}</p>
+                                        </div>
+                                        <p className="text-xs text-slate-400 font-bold flex items-center gap-2">
+                                            {item.grade}º - {item.classGroup}
+                                        </p>
                                     </td>
                                     <td className="py-4 text-slate-600 font-medium text-sm">{item.quizTitle}</td>
                                     <td className="py-4 text-right">
@@ -1776,13 +1954,16 @@ const DashboardStaff = ({ currentUser, setView }: { currentUser: User, setView: 
                     <>
                         <DashboardQuickAction icon={Baby} label="Meus Filhos" colorClass="bg-orange-500" onClick={() => setView('MANAGE_USERS')} />
                         <DashboardQuickAction icon={Sparkles} label="Nova Tarefa" colorClass="bg-pink-500" onClick={() => setView('CREATE_QUIZ')} />
+                        <DashboardQuickAction icon={Library} label="Atividades" colorClass="bg-indigo-500" onClick={() => setView('MANAGE_QUIZZES')} />
+                        <DashboardQuickAction icon={BarChartIcon} label="Relatórios" colorClass="bg-green-500" onClick={() => setView('REPORTS')} />
                     </>
                 ) : (
                     <>
                         <DashboardQuickAction icon={UserPlus} label="Matricular" colorClass="bg-blue-500" onClick={() => setView('ENROLL_STUDENT')} />
                         <DashboardQuickAction icon={PenTool} label="Criar Quiz" colorClass="bg-purple-500" onClick={() => setView('CREATE_QUIZ')} />
-                        <DashboardQuickAction icon={BarChartIcon} label="Relatórios" colorClass="bg-green-500" onClick={() => setView('REPORTS')} />
+                        <DashboardQuickAction icon={Library} label="Atividades" colorClass="bg-indigo-500" onClick={() => setView('MANAGE_QUIZZES')} />
                         <DashboardQuickAction icon={Grid3X3} label="Turmas" colorClass="bg-orange-500" onClick={() => setView('MANAGE_CLASSES')} />
+                        <DashboardQuickAction icon={BarChartIcon} label="Relatórios" colorClass="bg-green-500" onClick={() => setView('REPORTS')} />
                     </>
                 )}
             </div>
@@ -1888,6 +2069,9 @@ const App: React.FC = () => {
     const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
     const [activeGame, setActiveGame] = useState<string | null>(null);
     const [menuOpen, setMenuOpen] = useState(false);
+    
+    // New state for editing
+    const [quizToEdit, setQuizToEdit] = useState<Quiz | null>(null);
 
     const handleLogin = (u: User) => {
         setUser(u);
@@ -1901,6 +2085,7 @@ const App: React.FC = () => {
         setActiveQuiz(null);
         setActiveGame(null);
         setMenuOpen(false);
+        setQuizToEdit(null);
     };
 
     const handleQuizComplete = (score: number) => {
@@ -1914,11 +2099,24 @@ const App: React.FC = () => {
             };
             dataService.saveResult(result);
             
-            // Refresh user data (points)
             const updatedUsers = dataService.getUsers();
             const me = updatedUsers.find(u => u.id === user.id);
             if (me) setUser(me);
         }
+    };
+
+    const handleChangeView = (v: ViewState) => {
+        if (v === 'CREATE_QUIZ' && view !== 'CREATE_QUIZ') {
+            // Reset edit state when navigating to Create Quiz from menu
+            setQuizToEdit(null);
+        }
+        setView(v);
+        setMenuOpen(false);
+    };
+
+    const handleEditQuiz = (quiz: Quiz) => {
+        setQuizToEdit(quiz);
+        setView('CREATE_QUIZ');
     };
 
     // Main Render Logic
@@ -1940,19 +2138,28 @@ const App: React.FC = () => {
     const renderView = () => {
         switch(view) {
             case 'DASHBOARD_STAFF':
-                return <DashboardStaff currentUser={user} setView={setView} />;
+                return <DashboardStaff currentUser={user} setView={handleChangeView} />;
             case 'DASHBOARD_STUDENT':
-                return <DashboardStudent currentUser={user} onPlayQuiz={setActiveQuiz} setView={setView} />;
+                return <DashboardStudent currentUser={user} onPlayQuiz={setActiveQuiz} setView={handleChangeView} />;
             case 'MANAGE_USERS':
                 return <ManageUsersView currentUser={user} />;
             case 'ENROLL_STUDENT':
-                return <EnrollStudentView currentUser={user} onEnroll={() => setView('MANAGE_USERS')} />;
+                return <EnrollStudentView currentUser={user} onEnroll={() => handleChangeView('MANAGE_USERS')} />;
             case 'MANAGE_CLASSES':
                 return <ManageClassesView />;
             case 'CREATE_QUIZ':
-                return <CreateQuizView currentUser={user} onSuccess={() => setView(user.role === UserRole.PARENT ? 'DASHBOARD_STAFF' : 'DASHBOARD_STAFF')} />;
+                return <CreateQuizView 
+                    currentUser={user} 
+                    quizToEdit={quizToEdit}
+                    onSuccess={() => {
+                        setQuizToEdit(null);
+                        setView('MANAGE_QUIZZES');
+                    }} 
+                />;
+            case 'MANAGE_QUIZZES':
+                return <ManageQuizzesView onEdit={handleEditQuiz} onCreate={() => handleChangeView('CREATE_QUIZ')} />;
             case 'REPORTS':
-                return <ReportsView />;
+                return <ReportsView currentUser={user} />;
             case 'LEADERBOARD':
                 return <LeaderboardView currentUser={user} />;
             case 'GAMES_HUB':
@@ -1970,7 +2177,7 @@ const App: React.FC = () => {
                     <Sidebar 
                         currentUser={user} 
                         currentView={view} 
-                        setView={setView} 
+                        setView={handleChangeView} 
                         onLogout={handleLogout} 
                         onClose={() => setMenuOpen(false)}
                     />
@@ -1979,7 +2186,7 @@ const App: React.FC = () => {
             
             {/* Desktop Sidebar */}
             <div className="hidden md:block h-screen sticky top-0">
-                <Sidebar currentUser={user} currentView={view} setView={setView} onLogout={handleLogout} />
+                <Sidebar currentUser={user} currentView={view} setView={handleChangeView} onLogout={handleLogout} />
             </div>
 
             <main className="flex-1 p-4 md:p-8 overflow-x-hidden">

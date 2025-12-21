@@ -1,3 +1,4 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',  
   TEACHER = 'TEACHER',
@@ -70,6 +71,7 @@ export type ViewState =
   | 'ENROLL_STUDENT'
   | 'MANAGE_CLASSES' 
   | 'CREATE_QUIZ'
+  | 'MANAGE_QUIZZES'
   | 'PLAY_QUIZ'
   | 'LEADERBOARD'
   | 'REPORTS'
