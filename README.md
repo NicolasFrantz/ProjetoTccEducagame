@@ -43,5 +43,6 @@
 
 - **React** com **TypeScript**  
 - **Tailwind CSS** para estilização  
+  **Firebase** para banco de dados  
 
 ---

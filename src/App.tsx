@@ -1,8 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, ViewState, Quiz, QuizResult, SUBJECTS, Question } from './types';
+import { User, UserRole, ViewState, Quiz, QuizResult, SUBJECTS, Question, SchoolClass  } from './types';
 import { dataService } from './services/dataService';
 import { generateQuizQuestions } from './services/geminiService';
 import { Button } from './components/Button';
+import { auth, db } from './firebaseConfig';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut
+} from 'firebase/auth';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  addDoc,
+  updateDoc,
+  query,
+  where,
+  increment
+} from 'firebase/firestore';
 import { 
   Users, 
   Trophy, 
@@ -708,34 +726,167 @@ const GamesHubView = ({ onSelectGame }: { onSelectGame: (game: string) => void }
 const LoginView = ({ onLogin }: { onLogin: (user: User) => void }) => {
   const [tab, setTab] = useState<'student' | 'staff'>('student');
   const [staffRoleType, setStaffRoleType] = useState<'TEACHER' | 'PARENT'>('TEACHER');
+
   const [error, setError] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Student
   const [studentName, setStudentName] = useState('');
   const [grade, setGrade] = useState(1);
-  const [classGroup, setClassGroup] = useState(''); 
+  const [classGroup, setClassGroup] = useState('');
+
+  // Staff
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isRegistering, setIsRegistering] = useState(false);
+
+  // Register
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const availableClasses = dataService.getClasses();
-  const handleStudentLogin = () => {
-    const users = dataService.getUsers();
-    const found = users.find(u => u.role === UserRole.STUDENT && u.name.toLowerCase().trim() === studentName.toLowerCase().trim() && u.grade === grade && u.classGroup === classGroup);
-    if (found) { playSound('success'); onLogin(found); } else { playSound('error'); setError('Aluno não encontrado! Verifique se selecionou a turma correta.'); }
+
+  // Classes
+  const [availableClasses, setAvailableClasses] = useState<SchoolClass[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [view, setView] = useState<ViewState>('LOGIN');
+
+  useEffect(() => {
+    const loadClasses = async () => {
+      try {
+        const classes = await dataService.getClasses();
+        setAvailableClasses(classes);
+      } catch (e) {
+        console.error('Erro ao carregar turmas', e);
+      }
+    };
+
+    loadClasses();
+  }, []);
+
+  const filteredClasses = availableClasses.filter(
+    c => c.grade === grade
+  );
+
+  const handleStudentLogin = async () => {
+    if (!studentName || !grade || !classGroup) {
+      setError('Preencha nome, série e turma.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const q = query(
+        collection(db, 'users'),
+        where('role', '==', UserRole.STUDENT),
+        where('name', '==', studentName.trim()),
+        where('grade', '==', grade),
+        where('classGroup', '==', classGroup)
+      );
+
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        setError('Aluno não encontrado.');
+        return;
+      }
+
+      const user = {
+        id: snapshot.docs[0].id,
+        ...snapshot.docs[0].data()
+      } as User;
+
+      onLogin(user);
+    } catch (e) {
+      setError('Erro ao buscar aluno.');
+    } finally {
+      setIsLoading(false);
+    }
   };
-  const handleStaffLogin = () => {
-    const users = dataService.getUsers();
-    const found = users.find(u => (u.role === UserRole.ADMIN || u.role === UserRole.TEACHER || u.role === UserRole.PARENT) && (u.email === email || u.name === email) && u.password === password);
-    if (found) { playSound('success'); onLogin(found); } else { playSound('error'); setError('Credenciais inválidas. Verifique email e senha.'); }
-  };
-  const handleStaffRegister = () => {
-    if (!regName || !regEmail || !regPassword) { setError('Preencha todos os campos.'); return; }
-    const users = dataService.getUsers(); if (users.find(u => u.email === regEmail)) { setError('Este email já está cadastrado.'); return; }
-    const newUser: User = { id: `staff-${Date.now()}`, name: regName, email: regEmail, password: regPassword, role: staffRoleType === 'PARENT' ? UserRole.PARENT : UserRole.TEACHER };
-    dataService.saveUser(newUser); playSound('success'); onLogin(newUser);
-  };
-  const filteredClasses = availableClasses.filter(c => c.grade === grade);
+
+
+  const handleStaffLogin = async () => {
+  if (!email || !password) {
+    setError('Preencha email e senha.');
+    return;
+  }
+
+  setIsLoading(true);
+  setError('');
+
+  try {
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+
+    const userDoc = await getDoc(
+      doc(db, 'users', credential.user.uid)
+    );
+
+    if (!userDoc.exists()) {
+      setError('Usuário não cadastrado.');
+      return;
+    }
+
+    const user = userDoc.data() as User;
+
+    if (user.role === UserRole.STUDENT) {
+      setError('Aluno não acessa por email.');
+      return;
+    }
+
+    onLogin(user);
+  } catch {
+    setError('Email ou senha inválidos.');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+  const handleStaffRegister = async () => {
+  if (!regName || !regEmail || !regPassword) {
+    setError('Preencha todos os campos.');
+    return;
+  }
+
+  if (regPassword.length < 6) {
+    setError('Coloque uma senha mais forte.');
+    return;
+  }
+
+  setIsLoading(true);
+
+  try {
+    const credential = await createUserWithEmailAndPassword(
+      auth,
+      regEmail,
+      regPassword
+    );
+
+    const newUser: User = {
+      id: credential.user.uid,
+      name: regName,
+      email: regEmail,
+      role: staffRoleType === 'PARENT'
+        ? UserRole.PARENT
+        : UserRole.TEACHER
+    };
+
+    await setDoc(
+      doc(db, 'users', credential.user.uid),
+      newUser
+    );
+
+    setUser(newUser);
+    setView('DASHBOARD_STAFF');
+
+  } catch (error) {
+    console.error(error);
+    setError('Erro ao criar conta.');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
   return (
     <div className="min-h-screen bg-[#F0F9FF] flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute top-10 left-10 w-32 h-32 bg-yellow-300 rounded-full blur-3xl opacity-50"></div>
@@ -1154,24 +1305,59 @@ const CreateQuizView = ({ currentUser, quizToEdit, onSuccess }: { currentUser: U
 };
 
 // NEW COMPONENT: MANAGE QUIZZES
-const ManageQuizzesView = ({ onEdit, onCreate }: { onEdit: (quiz: Quiz) => void, onCreate: () => void }) => {
-    const [quizzes, setQuizzes] = useState(dataService.getQuizzes());
-    const [searchTerm, setSearchTerm] = useState('');
-    const [quizToDelete, setQuizToDelete] = useState<Quiz | null>(null);
+const ManageQuizzesView = ({
+  onEdit,
+  onCreate
+}: {
+  onEdit: (quiz: Quiz) => void;
+  onCreate: () => void;
+}) => {
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [quizToDelete, setQuizToDelete] = useState<Quiz | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-    const executeDelete = () => {
-        if (quizToDelete) {
-            dataService.deleteQuiz(quizToDelete.id);
-            setQuizzes(dataService.getQuizzes());
-            setQuizToDelete(null);
-            playSound('click');
-        }
+
+  useEffect(() => {
+    const loadQuizzes = async () => {
+      try {
+        const data = await dataService.getQuizzes();
+        setQuizzes(data);
+      } catch (e) {
+        console.error('Erro ao carregar quizzes', e);
+      }
     };
 
-    const filteredQuizzes = quizzes.filter(q => 
-        q.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        q.subject.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    loadQuizzes();
+  }, []);
+
+
+  const executeDelete = async () => {
+    if (!quizToDelete) return;
+
+    setIsLoading(true);
+
+    try {
+      await dataService.deleteQuiz(quizToDelete.id);
+
+      // Atualiza lista local sem recarregar tudo
+      setQuizzes(prev =>
+        prev.filter(q => q.id !== quizToDelete.id)
+      );
+
+      playSound('click');
+      setQuizToDelete(null);
+    } catch (e) {
+      console.error('Erro ao deletar quiz', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filteredQuizzes = quizzes.filter(q =>
+    q.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    q.subject.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
     return (
         <div className="max-w-6xl mx-auto space-y-8 relative">
@@ -1278,123 +1464,345 @@ const ManageQuizzesView = ({ onEdit, onCreate }: { onEdit: (quiz: Quiz) => void,
 
 
 const ManageClassesView = () => {
-    const [classes, setClasses] = useState(dataService.getClasses()); const [grade, setGrade] = useState(1); const [className, setClassName] = useState('');
-    const handleAddClass = () => { if (!className) return alert('Nome?'); dataService.saveClass({ id: `c-${Date.now()}`, grade, name: className, schoolId: 's1' }); setClasses(dataService.getClasses()); setClassName(''); };
-    const displayedClasses = classes.filter(c => c.grade === grade);
-    return (
-        <div className="max-w-4xl mx-auto space-y-8">
-            <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                <h3 className="text-xl font-display font-black mb-6">Cadastrar Nova Turma</h3>
-                <div className="flex flex-col md:flex-row gap-4 md:items-end">
-                    <div className="flex-1 w-full order-2 md:order-1"><label className="block text-xs font-black text-slate-400 uppercase mb-2 ml-2">Série</label><div className="flex gap-1 overflow-x-auto pb-2">{[1,2,3,4,5].map(g => (<button key={g} onClick={() => setGrade(g)} className={`w-10 h-10 rounded-lg font-black text-sm flex-shrink-0 ${grade === g ? 'bg-primary text-white' : 'bg-slate-100 text-slate-400'}`}>{g}º</button>))}</div></div>
-                    <div className="flex-[2] w-full order-1 md:order-2"><label className="block text-xs font-black text-slate-400 uppercase mb-2 ml-2">Nome</label><input value={className} onChange={e => setClassName(e.target.value)} className="w-full p-3 rounded-xl bg-slate-50 border-2" /></div>
-                    <Button onClick={handleAddClass} variant="primary" className="h-[50px] w-full md:w-auto order-3 md:order-3"><Plus className="w-5 h-5" /> Adicionar</Button>
-                </div>
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [grade, setGrade] = useState(1);
+  const [className, setClassName] = useState('');
+
+  useEffect(() => {
+    const loadClasses = async () => {
+      const data = await dataService.getClasses();
+      setClasses(data);
+    };
+
+    loadClasses();
+  }, []);
+
+  const handleAddClass = async () => {
+    if (!className) {
+      alert('Nome?');
+      return;
+    }
+
+    const newClass: SchoolClass = {
+      id: `c-${Date.now()}`,
+      grade,
+      name: className,
+      schoolId: 's1'
+    };
+
+    await dataService.saveClass(newClass);
+    setClasses(prev => [...prev, newClass]);
+    setClassName('');
+  };
+
+  const handleDelete = async (id: string) => {
+    await dataService.deleteClass(id);
+    setClasses(prev => prev.filter(c => c.id !== id));
+  };
+
+  const displayedClasses = classes.filter(c => c.grade === grade);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-8">
+      <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+        <h3 className="text-xl font-display font-black mb-6">
+          Cadastrar Nova Turma
+        </h3>
+
+        <div className="flex flex-col md:flex-row gap-4 md:items-end">
+          <div className="flex-1">
+            <label className="block text-xs font-black text-slate-400 uppercase mb-2 ml-2">
+              Série
+            </label>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map(g => (
+                <button
+                  key={g}
+                  onClick={() => setGrade(g)}
+                  className={`w-10 h-10 rounded-lg font-black ${
+                    grade === g
+                      ? 'bg-primary text-white'
+                      : 'bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  {g}º
+                </button>
+              ))}
             </div>
-            <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                <h3 className="text-xl font-display font-black mb-6">Turmas ({grade}º Ano)</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">{displayedClasses.length === 0 ? (<p className="col-span-3 text-center text-slate-400 font-bold py-8">Nenhuma turma.</p>) : (displayedClasses.map(c => (<div key={c.id} className="p-4 rounded-2xl bg-slate-50 border flex justify-between items-center group"><div><span className="text-lg font-black text-slate-800">Turma {c.name}</span></div><button onClick={() => { dataService.deleteClass(c.id); setClasses(dataService.getClasses()); }} className="text-slate-300 hover:text-red-500"><Trash className="w-4 h-4" /></button></div>)))}</div>
-            </div>
+          </div>
+
+          <div className="flex-[2]">
+            <label className="block text-xs font-black text-slate-400 uppercase mb-2 ml-2">
+              Nome
+            </label>
+            <input
+              value={className}
+              onChange={e => setClassName(e.target.value)}
+              className="w-full p-3 rounded-xl bg-slate-50 border-2"
+            />
+          </div>
+
+          <Button onClick={handleAddClass} variant="primary">
+            <Plus className="w-5 h-5" /> Adicionar
+          </Button>
         </div>
-    );
+      </div>
+
+      <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+        <h3 className="text-xl font-display font-black mb-6">
+          Turmas ({grade}º Ano)
+        </h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {displayedClasses.length === 0 ? (
+            <p className="col-span-3 text-center text-slate-400 font-bold py-8">
+              Nenhuma turma.
+            </p>
+          ) : (
+            displayedClasses.map(c => (
+              <div
+                key={c.id}
+                className="p-4 rounded-2xl bg-slate-50 border flex justify-between items-center"
+              >
+                <span className="text-lg font-black">
+                  Turma {c.name}
+                </span>
+                <button
+                  onClick={() => handleDelete(c.id)}
+                  className="text-slate-300 hover:text-red-500"
+                >
+                  <Trash className="w-4 h-4" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
 
+const EnrollStudentView = ({
+  onEnroll
+}: {
+  currentUser: User;
+  onEnroll: () => void;
+}) => {
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [ns, setNs] = useState({
+    name: '',
+    grade: 1,
+    classGroup: ''
+  });
 
-const EnrollStudentView = ({ onEnroll }: { currentUser: User, onEnroll: () => void }) => {
-    const [ns, setNs] = useState({ name: '', grade: 1, classGroup: '' }); const classes = dataService.getClasses(); const fc = classes.filter(c => c.grade === ns.grade);
-    const handleAdd = () => { if(!ns.name || !ns.classGroup) return alert("Preencha tudo"); dataService.saveUser({ id: `u-${Date.now()}`, role: UserRole.STUDENT, name: ns.name, email: `${ns.name.toLowerCase().replace(' ', '.')}@escola.com`, grade: ns.grade, classGroup: ns.classGroup, level: 1, points: 0, parentIds: [] }); setNs({ name: '', grade: 1, classGroup: '' }); onEnroll(); };
-    return (
-        <div className="max-w-3xl mx-auto"><div className="bg-white p-8 rounded-[2rem] border shadow-sm"><h3 className="text-2xl font-display font-black mb-6">Matricular Aluno</h3><div className="grid gap-6"><div><label className="text-xs font-black text-slate-400 mb-2 block">Nome</label><input className="w-full p-4 rounded-xl bg-slate-50 border-2" value={ns.name} onChange={e => setNs({...ns, name: e.target.value})} /></div><div className="flex gap-4"><div className="flex-1"><label className="text-xs font-black text-slate-400 mb-2 block">Série</label><select className="w-full p-4 rounded-xl bg-slate-50 border-2" value={ns.grade} onChange={e => setNs({...ns, grade: parseInt(e.target.value)})}>{[1,2,3,4,5].map(g => <option key={g} value={g}>{g}º Ano</option>)}</select></div><div className="flex-1"><label className="text-xs font-black text-slate-400 mb-2 block">Turma</label><select className="w-full p-4 rounded-xl bg-slate-50 border-2" value={ns.classGroup} onChange={e => setNs({...ns, classGroup: e.target.value})}><option value="">Selecione</option>{fc.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div></div><Button onClick={handleAdd} variant="primary" size="lg" className="mt-4">Matricular</Button></div></div></div>
-    );
+  useEffect(() => {
+    const loadClasses = async () => {
+      const data = await dataService.getClasses();
+      setClasses(data);
+    };
+
+    loadClasses();
+  }, []);
+
+  const filteredClasses = classes.filter(
+    c => c.grade === ns.grade
+  );
+
+  const handleAdd = async () => {
+    if (!ns.name || !ns.classGroup) {
+      alert('Preencha tudo');
+      return;
+    }
+
+    const newStudent: User = {
+      id: `u-${Date.now()}`,
+      role: UserRole.STUDENT,
+      name: ns.name.trim(),
+      email: '',
+      grade: ns.grade,
+      classGroup: ns.classGroup,
+      level: 1,
+      points: 0,
+      parentIds: []
+    };
+
+    await dataService.saveUser(newStudent);
+    setNs({ name: '', grade: 1, classGroup: '' });
+    onEnroll();
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+        <h3 className="text-2xl font-display font-black mb-6">
+          Matricular Aluno
+        </h3>
+
+        <div className="grid gap-6">
+          <div>
+            <label className="text-xs font-black text-slate-400 mb-2 block">
+              Nome
+            </label>
+            <input
+              className="w-full p-4 rounded-xl bg-slate-50 border-2"
+              value={ns.name}
+              onChange={e =>
+                setNs({ ...ns, name: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <label className="text-xs font-black text-slate-400 mb-2 block">
+                Série
+              </label>
+              <select
+                className="w-full p-4 rounded-xl bg-slate-50 border-2"
+                value={ns.grade}
+                onChange={e =>
+                  setNs({
+                    ...ns,
+                    grade: parseInt(e.target.value)
+                  })
+                }
+              >
+                {[1, 2, 3, 4, 5].map(g => (
+                  <option key={g} value={g}>
+                    {g}º Ano
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex-1">
+              <label className="text-xs font-black text-slate-400 mb-2 block">
+                Turma
+              </label>
+              <select
+                className="w-full p-4 rounded-xl bg-slate-50 border-2"
+                value={ns.classGroup}
+                onChange={e =>
+                  setNs({
+                    ...ns,
+                    classGroup: e.target.value
+                  })
+                }
+              >
+                <option value="">Selecione</option>
+                {filteredClasses.map(c => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <Button
+            onClick={handleAdd}
+            variant="primary"
+            size="lg"
+            className="mt-4"
+          >
+            Matricular
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const ManageUsersView = ({ currentUser }: { currentUser: User }) => {
-  const [users, setUsers] = useState(dataService.getUsers());
+  const [users, setUsers] = useState<User[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [newStudent, setNewStudent] = useState({ name: '', email: '', grade: 1, classGroup: '' });
   const isParent = currentUser.role === UserRole.PARENT;
-  
-  // State for Staff Filters (Diário de Classe)
+
   const [filterGrade, setFilterGrade] = useState(1);
   const [filterClass, setFilterClass] = useState('');
 
-  // State for Parent Linking
   const [parentTab, setParentTab] = useState<'CREATE' | 'LINK'>('CREATE');
   const [linkSearchTerm, setLinkSearchTerm] = useState('');
   const [linkSearchGrade, setLinkSearchGrade] = useState(1);
   const [foundStudents, setFoundStudents] = useState<User[]>([]);
-  
-  // Modal State for Deletion
+
   const [studentToDelete, setStudentToDelete] = useState<User | null>(null);
 
-  const availableClasses = dataService.getClasses();
+  useEffect(() => {
+    const loadData = async () => {
+      const u = await dataService.getUsers();
+      const c = await dataService.getClasses();
+      setUsers(u);
+      setClasses(c);
+    };
+    loadData();
+  }, []);
 
-  const handleAddStudent = () => {
-    if(!newStudent.name || !newStudent.classGroup) return alert("Preencha nome e turma");
+  const handleAddStudent = async () => {
+    if (!newStudent.name || !newStudent.classGroup) return alert('Preencha nome e turma');
+
     const user: User = {
       id: `u-${Date.now()}`,
       role: UserRole.STUDENT,
-      name: newStudent.name,
-      email: `${newStudent.name.toLowerCase().replace(' ', '.')}@escola.com`, 
+      name: newStudent.name.trim(),
+      email: '',
       grade: newStudent.grade,
       classGroup: newStudent.classGroup,
       level: 1,
       points: 0,
-      // If Parent creates, automatically link
       parentIds: isParent ? [currentUser.id] : []
     };
-    dataService.saveUser(user);
-    setUsers(dataService.getUsers());
+
+    await dataService.saveUser(user);
+    setUsers(prev => [...prev, user]);
     setNewStudent({ ...newStudent, name: '' });
   };
 
   const handleSearchStudent = () => {
-      if (!linkSearchTerm) return;
-      const results = users.filter(u => 
-        u.role === UserRole.STUDENT &&
-        u.grade === linkSearchGrade &&
-        u.name.toLowerCase().includes(linkSearchTerm.toLowerCase()) &&
-        // Exclude already linked
-        (!u.parentIds || !u.parentIds.includes(currentUser.id))
-      );
-      setFoundStudents(results);
+    if (!linkSearchTerm) return;
+
+    const results = users.filter(u =>
+      u.role === UserRole.STUDENT &&
+      u.grade === linkSearchGrade &&
+      u.name.toLowerCase().includes(linkSearchTerm.toLowerCase()) &&
+      (!u.parentIds || !u.parentIds.includes(currentUser.id))
+    );
+
+    setFoundStudents(results);
   };
 
-  const handleLinkStudent = (student: User) => {
-      const updatedUser = {
-          ...student,
-          parentIds: [...(student.parentIds || []), currentUser.id]
-      };
-      dataService.saveUser(updatedUser);
-      setUsers(dataService.getUsers());
-      setFoundStudents(prev => prev.filter(u => u.id !== student.id));
-      alert(`Você agora está vinculado a ${student.name}!`);
-  };
-  
-  // HANDLER FOR DELETE CONFIRMATION
-  const executeDelete = () => {
-      if (studentToDelete) {
-          dataService.deleteStudent(studentToDelete.id);
-          setUsers(dataService.getUsers());
-          setStudentToDelete(null);
-          playSound('click');
-      }
+  const handleLinkStudent = async (student: User) => {
+    const updatedUser: User = {
+      ...student,
+      parentIds: [...(student.parentIds || []), currentUser.id]
+    };
+
+    await dataService.saveUser(updatedUser);
+    setUsers(prev => prev.map(u => u.id === student.id ? updatedUser : u));
+    setFoundStudents(prev => prev.filter(u => u.id !== student.id));
+    alert(`Você agora está vinculado a ${student.name}!`);
   };
 
-  // Filter classes for the "Add Student" or "Link Student" logic
-  const filteredClasses = availableClasses.filter(c => c.grade === newStudent.grade);
+  const executeDelete = async () => {
+    if (!studentToDelete) return;
 
-  // Filter classes for the "Class Diary" view logic
-  const filteredClassesForDiary = availableClasses.filter(c => c.grade === filterGrade);
+    await dataService.deleteStudent(studentToDelete.id);
+    setUsers(prev => prev.filter(u => u.id !== studentToDelete.id));
+    setStudentToDelete(null);
+    playSound('click');
+  };
 
-  // If Parent, only show their children
-  const displayedStudents = isParent 
+  const filteredClasses = classes.filter(c => c.grade === newStudent.grade);
+  const filteredClassesForDiary = classes.filter(c => c.grade === filterGrade);
+
+  const displayedStudents = isParent
     ? users.filter(u => u.role === UserRole.STUDENT && u.parentIds?.includes(currentUser.id))
     : users.filter(u => u.role === UserRole.STUDENT);
 
-  // Logic for Staff Diary Filter
-  const diaryStudents = users.filter(u => 
-    u.role === UserRole.STUDENT && 
-    u.grade === filterGrade && 
+  const diaryStudents = users.filter(u =>
+    u.role === UserRole.STUDENT &&
+    u.grade === filterGrade &&
     (filterClass === '' || u.classGroup === filterClass)
   );
 
@@ -1522,11 +1930,19 @@ const ManageUsersView = ({ currentUser }: { currentUser: User }) => {
                                 <h4 className="font-display font-black text-xl text-slate-800">{child.name}</h4>
                                 <p className="text-sm font-bold text-slate-400 uppercase mb-2">{child.grade}º Ano • {child.classGroup}</p>
                                 <button 
-                                    onClick={() => { 
-                                        const updated = {...child, parentIds: child.parentIds?.filter(id => id !== currentUser.id)};
-                                        dataService.saveUser(updated);
-                                        setUsers(dataService.getUsers());
-                                    }} 
+                                   onClick={async () => { 
+  const updated: User = {
+    ...child,
+    parentIds: child.parentIds?.filter(id => id !== currentUser.id)
+  };
+
+  await dataService.saveUser(updated);
+
+  setUsers(prev =>
+    prev.map(u => u.id === updated.id ? updated : u)
+  );
+}}
+
                                     className="text-red-400 text-xs font-bold hover:underline"
                                 >
                                     Desvincular
@@ -1677,127 +2093,186 @@ const ManageUsersView = ({ currentUser }: { currentUser: User }) => {
 };
 
 const LeaderboardView = ({ currentUser }: { currentUser: User }) => {
-  const users = dataService.getUsers();
-  const students = users.filter(u => u.role === UserRole.STUDENT).sort((a, b) => (b.points || 0) - (a.points || 0));
-  
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    const loadUsers = async () => {
+      const data = await dataService.getUsers();
+      setUsers(data);
+    };
+    loadUsers();
+  }, []);
+
+  const students = users
+    .filter(u => u.role === UserRole.STUDENT)
+    .sort((a, b) => (b.points || 0) - (a.points || 0));
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 mb-8 text-center relative overflow-hidden">
-         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-300 via-yellow-500 to-yellow-300"></div>
-         <Trophy className="w-20 h-20 text-yellow-400 mx-auto mb-4" />
-         <h2 className="text-3xl font-display font-black text-slate-800">Galeria de Campeões</h2>
-         <p className="text-slate-500 font-bold">Quem está brilhando mais?</p>
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-300 via-yellow-500 to-yellow-300"></div>
+        <Trophy className="w-20 h-20 text-yellow-400 mx-auto mb-4" />
+        <h2 className="text-3xl font-display font-black text-slate-800">Galeria de Campeões</h2>
+        <p className="text-slate-500 font-bold">Quem está brilhando mais?</p>
       </div>
 
       <div className="grid gap-4">
         {students.map((student, index) => {
-           const isTop3 = index < 3;
-           const medalColor = index === 0 ? 'bg-yellow-400' : index === 1 ? 'bg-slate-300' : 'bg-orange-300';
-           
-           return (
-             <div key={student.id} className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${isTop3 ? 'bg-white border-yellow-100 scale-[1.02] shadow-md' : 'bg-slate-50 border-transparent opacity-80'}`}>
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-white text-xl shadow-sm ${isTop3 ? medalColor : 'bg-slate-200 text-slate-400'}`}>
-                    {index + 1}
-                </div>
-                <UserAvatar name={student.name} />
-                <div className="flex-1">
-                    <p className="font-bold text-slate-700 text-lg">{student.name}</p>
-                    <p className="text-xs font-bold text-slate-400 uppercase">{student.grade}º Ano • {student.classGroup}</p>
-                </div>
-                <div className="text-right">
-                    <p className="font-black text-2xl text-indigo-600">{student.points || 0}</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Pontos</p>
-                </div>
-             </div>
-           );
+          const isTop3 = index < 3;
+          const medalColor =
+            index === 0
+              ? 'bg-yellow-400'
+              : index === 1
+              ? 'bg-slate-300'
+              : 'bg-orange-300';
+
+          return (
+            <div
+              key={student.id}
+              className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${
+                isTop3
+                  ? 'bg-white border-yellow-100 scale-[1.02] shadow-md'
+                  : 'bg-slate-50 border-transparent opacity-80'
+              }`}
+            >
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-white text-xl shadow-sm ${
+                  isTop3 ? medalColor : 'bg-slate-200 text-slate-400'
+                }`}
+              >
+                {index + 1}
+              </div>
+
+              <UserAvatar name={student.name} />
+
+              <div className="flex-1">
+                <p className="font-bold text-slate-700 text-lg">{student.name}</p>
+                <p className="text-xs font-bold text-slate-400 uppercase">
+                  {student.grade}º Ano • {student.classGroup}
+                </p>
+              </div>
+
+              <div className="text-right">
+                <p className="font-black text-2xl text-indigo-600">
+                  {student.points || 0}
+                </p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase">
+                  Pontos
+                </p>
+              </div>
+            </div>
+          );
         })}
       </div>
     </div>
   );
 };
 
+
 const ReportsView = ({ currentUser }: { currentUser?: User }) => {
-    // 1. Get Data
-    const results = dataService.getResults();
-    const quizzes = dataService.getQuizzes();
-    const users = dataService.getUsers(); 
-    const classes = dataService.getClasses();
+  const [results, setResults] = useState<QuizResult[]>([]);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
 
-    // Determine if Parent mode
-    const isParent = currentUser?.role === UserRole.PARENT;
-    const parentChildren = isParent ? users.filter(u => u.parentIds?.includes(currentUser?.id || '')) : [];
+  const [filterGrade, setFilterGrade] = useState<number | 'ALL'>('ALL');
+  const [filterClass, setFilterClass] = useState<string>('ALL');
+  const [filterChildId, setFilterChildId] = useState<string>('ALL');
 
-    // 2. State for Filters
-    const [filterGrade, setFilterGrade] = useState<number | 'ALL'>('ALL');
-    const [filterClass, setFilterClass] = useState<string>('ALL');
-    // Parent specific filter (optional, default to ALL children or a specific child ID)
-    const [filterChildId, setFilterChildId] = useState<string>('ALL');
+  useEffect(() => {
+    const loadData = async () => {
+      const [r, q, u, c] = await Promise.all([
+        dataService.getResults(),
+        dataService.getQuizzes(),
+        dataService.getUsers(),
+        dataService.getClasses()
+      ]);
+      setResults(r);
+      setQuizzes(q);
+      setUsers(u);
+      setClasses(c);
+    };
+    loadData();
+  }, []);
 
-    // 3. Filter Logic
-    const filteredResults = results.filter(r => {
-        const student = users.find(u => u.id === r.studentId);
-        if (!student) return false;
+  const isParent = currentUser?.role === UserRole.PARENT;
+  const parentChildren = isParent
+    ? users.filter(u => u.parentIds?.includes(currentUser?.id || ''))
+    : [];
 
-        if (isParent) {
-            // Must be one of the parent's children
-            if (!parentChildren.find(c => c.id === student.id)) return false;
-            // Apply child filter if selected
-            if (filterChildId !== 'ALL' && student.id !== filterChildId) return false;
-        } else {
-            // Teacher filters
-            if (filterGrade !== 'ALL' && student.grade !== filterGrade) return false;
-            if (filterClass !== 'ALL' && student.classGroup !== filterClass) return false;
-        }
+  const filteredResults = results.filter(r => {
+    const student = users.find(u => u.id === r.studentId);
+    if (!student) return false;
 
-        return true;
-    });
-    
-    // 4. Calculate Stats
-    const totalQuizzesTaken = filteredResults.length;
-    const avgScore = totalQuizzesTaken > 0 ? filteredResults.reduce((a, b) => a + b.score, 0) / totalQuizzesTaken : 0;
-    
-    const subjectScores: Record<string, { total: number, count: number }> = {};
-    filteredResults.forEach(r => {
-        const quiz = quizzes.find(q => q.id === r.quizId);
-        if (quiz) {
-            if (!subjectScores[quiz.subject]) subjectScores[quiz.subject] = { total: 0, count: 0 };
-            subjectScores[quiz.subject].total += r.score;
-            subjectScores[quiz.subject].count += 1;
-        }
-    });
-    
-    const chartData = Object.keys(subjectScores).map(sub => ({
-        name: sub,
-        score: Math.round(subjectScores[sub].total / subjectScores[sub].count)
-    }));
+    if (isParent) {
+      if (!parentChildren.find(c => c.id === student.id)) return false;
+      if (filterChildId !== 'ALL' && student.id !== filterChildId) return false;
+    } else {
+      if (filterGrade !== 'ALL' && student.grade !== filterGrade) return false;
+      if (filterClass !== 'ALL' && student.classGroup !== filterClass) return false;
+    }
 
-    const availableClasses = classes.filter(c => filterGrade === 'ALL' || c.grade === filterGrade);
+    return true;
+  });
 
-    // 5. Prepare Detailed List Data
-    const detailedResults = filteredResults.map(r => {
-        const student = users.find(u => u.id === r.studentId);
-        const quiz = quizzes.find(q => q.id === r.quizId);
+  const totalQuizzesTaken = filteredResults.length;
+  const avgScore =
+    totalQuizzesTaken > 0
+      ? filteredResults.reduce((a, b) => a + b.score, 0) / totalQuizzesTaken
+      : 0;
 
-        let progressLabel = "(0/0)";
-        if (student && student.grade) {
-             const availableCount = quizzes.filter(q => q.targetGrade === student.grade).length;
-             const takenCount = new Set(results.filter(res => res.studentId === student.id).map(res => res.quizId)).size;
-             progressLabel = `(${takenCount}/${availableCount})`;
-        }
+  const subjectScores: Record<string, { total: number; count: number }> = {};
+  filteredResults.forEach(r => {
+    const quiz = quizzes.find(q => q.id === r.quizId);
+    if (quiz) {
+      if (!subjectScores[quiz.subject])
+        subjectScores[quiz.subject] = { total: 0, count: 0 };
+      subjectScores[quiz.subject].total += r.score;
+      subjectScores[quiz.subject].count += 1;
+    }
+  });
 
-        return {
-            id: `${r.studentId}-${r.quizId}-${r.date}`,
-            studentName: student?.name || 'Aluno Removido',
-            quizTitle: quiz?.title || 'Atividade Removida',
-            score: r.score,
-            maxScore: r.maxScore,
-            date: new Date(r.date).toLocaleDateString('pt-BR'),
-            timestamp: r.date,
-            grade: student?.grade,
-            classGroup: student?.classGroup,
-            progressLabel
-        };
-    }).sort((a, b) => b.timestamp - a.timestamp);
+  const chartData = Object.keys(subjectScores).map(sub => ({
+    name: sub,
+    score: Math.round(subjectScores[sub].total / subjectScores[sub].count)
+  }));
+
+  const availableClasses = classes.filter(
+    c => filterGrade === 'ALL' || c.grade === filterGrade
+  );
+
+  const detailedResults = filteredResults
+    .map(r => {
+      const student = users.find(u => u.id === r.studentId);
+      const quiz = quizzes.find(q => q.id === r.quizId);
+
+      let progressLabel = '(0/0)';
+      if (student && student.grade) {
+        const availableCount = quizzes.filter(
+          q => q.targetGrade === student.grade
+        ).length;
+        const takenCount = new Set(
+          results
+            .filter(res => res.studentId === student.id)
+            .map(res => res.quizId)
+        ).size;
+        progressLabel = `(${takenCount}/${availableCount})`;
+      }
+
+      return {
+        id: `${r.studentId}-${r.quizId}-${r.date}`,
+        studentName: student?.name || 'Aluno Removido',
+        quizTitle: quiz?.title || 'Atividade Removida',
+        score: r.score,
+        maxScore: r.maxScore,
+        date: new Date(r.date).toLocaleDateString('pt-BR'),
+        timestamp: r.date,
+        grade: student?.grade,
+        classGroup: student?.classGroup,
+        progressLabel
+      };
+    })
+    .sort((a, b) => b.timestamp - a.timestamp);
 
     return (
          <div className="max-w-5xl mx-auto space-y-8 pb-10">
@@ -1986,82 +2461,143 @@ const DashboardStaff = ({ currentUser, setView }: { currentUser: User, setView: 
     );
 };
 
-const DashboardStudent = ({ currentUser, onPlayQuiz, setView }: { currentUser: User, onPlayQuiz: (q: Quiz) => void, setView: (v: ViewState) => void }) => {
-    const quizzes = dataService.getQuizzes().filter(q => !q.targetGrade || q.targetGrade === currentUser.grade);
-    const results = dataService.getResults().filter(r => r.studentId === currentUser.id);
-    
-    // Filter quizzes not yet taken or allow retake? Let's just list all available for grade.
-    
-    return (
-        <div className="space-y-8">
-             <div className="bg-white p-6 md:p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center justify-between relative overflow-hidden">
-                <div className="relative z-10">
-                    <h2 className="text-2xl md:text-3xl font-display font-black text-slate-800 mb-1">Olá, {currentUser.name}!</h2>
-                    <p className="text-slate-500 font-bold text-sm md:text-base">Você tem {currentUser.points || 0} pontos e está no Nível {currentUser.level || 1}.</p>
-                </div>
-                <div className="relative z-10 bg-yellow-400 text-yellow-900 font-black px-4 py-2 rounded-2xl shadow-lg transform rotate-3 flex flex-col items-center">
-                    <Trophy className="w-6 h-6 mb-1" />
-                    <span>NVL {currentUser.level || 1}</span>
-                </div>
-                <div className="absolute right-0 top-0 w-32 h-full bg-gradient-to-l from-yellow-50 to-transparent"></div>
-             </div>
+const DashboardStudent = ({
+  currentUser,
+  onPlayQuiz,
+  setView
+}: {
+  currentUser: User;
+  onPlayQuiz: (q: Quiz) => void;
+  setView: (v: ViewState) => void;
+}) => {
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [results, setResults] = useState<QuizResult[]>([]);
 
-             <div className="grid grid-cols-2 gap-4">
-                 <button onClick={() => setView('GAMES_HUB')} className="bg-gradient-to-br from-pink-500 to-rose-600 rounded-[2rem] p-6 text-white text-left relative overflow-hidden group hover:scale-[1.02] transition-all shadow-lg shadow-pink-200">
-                    <Gamepad2 className="w-10 h-10 mb-4 bg-white/20 p-2 rounded-xl" />
-                    <p className="font-display font-black text-xl mb-1">Minigames</p>
-                    <p className="text-xs font-bold opacity-80">Jogar Agora</p>
-                    <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-                 </button>
-                 <button onClick={() => setView('LEADERBOARD')} className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-[2rem] p-6 text-white text-left relative overflow-hidden group hover:scale-[1.02] transition-all shadow-lg shadow-indigo-200">
-                    <Trophy className="w-10 h-10 mb-4 bg-white/20 p-2 rounded-xl" />
-                    <p className="font-display font-black text-xl mb-1">Ranking</p>
-                    <p className="text-xs font-bold opacity-80">Ver Posição</p>
-                    <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-                 </button>
-             </div>
+  useEffect(() => {
+    const loadData = async () => {
+      const [allQuizzes, allResults] = await Promise.all([
+        dataService.getQuizzes(),
+        dataService.getResults()
+      ]);
 
-             <div>
-                <h3 className="text-xl font-display font-black text-slate-800 mb-6 flex items-center gap-2">
-                    <BookOpen className="w-6 h-6 text-primary" /> Suas Missões
-                </h3>
-                <div className="grid gap-4">
-                    {quizzes.length === 0 ? (
-                        <p className="text-slate-400 font-bold text-center py-10 bg-slate-50 rounded-3xl border border-dashed border-slate-200">Nenhuma tarefa disponível por enquanto.</p>
-                    ) : (
-                        quizzes.map(quiz => {
-                            const result = results.find(r => r.quizId === quiz.id);
-                            return (
-                                <div key={quiz.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group hover:border-primary/30 transition-all">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-md ${result ? 'bg-green-500 shadow-green-200' : 'bg-primary shadow-indigo-200'}`}>
-                                            {result ? <CheckCircle className="w-8 h-8" /> : quiz.subject.charAt(0)}
-                                        </div>
-                                        <div>
-                                            <h4 className="font-black text-slate-700 text-lg group-hover:text-primary transition-colors">{quiz.title}</h4>
-                                            <p className="text-xs font-bold text-slate-400 uppercase">{quiz.subject} • {quiz.questions.length} Questões</p>
-                                        </div>
-                                    </div>
-                                    <div className="w-full md:w-auto">
-                                        {result ? (
-                                            <div className="bg-green-50 text-green-700 px-4 py-2 rounded-xl font-black text-sm text-center border border-green-100">
-                                                Feito! {result.score} pts
-                                            </div>
-                                        ) : (
-                                            <Button onClick={() => onPlayQuiz(quiz)} size="sm" className="w-full md:w-auto">
-                                                Começar <Play className="w-4 h-4 ml-1 fill-current" />
-                                            </Button>
-                                        )}
-                                    </div>
-                                </div>
-                            )
-                        })
-                    )}
-                </div>
-             </div>
+      setQuizzes(
+        allQuizzes.filter(
+          q => !q.targetGrade || q.targetGrade === currentUser.grade
+        )
+      );
+
+      setResults(
+        allResults.filter(r => r.studentId === currentUser.id)
+      );
+    };
+
+    loadData();
+  }, [currentUser]);
+
+  return (
+    <div className="space-y-8">
+      <div className="bg-white p-6 md:p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center justify-between relative overflow-hidden">
+        <div className="relative z-10">
+          <h2 className="text-2xl md:text-3xl font-display font-black text-slate-800 mb-1">
+            Olá, {currentUser.name}!
+          </h2>
+          <p className="text-slate-500 font-bold text-sm md:text-base">
+            Você tem {currentUser.points || 0} pontos e está no Nível {currentUser.level || 1}.
+          </p>
         </div>
-    );
+        <div className="relative z-10 bg-yellow-400 text-yellow-900 font-black px-4 py-2 rounded-2xl shadow-lg transform rotate-3 flex flex-col items-center">
+          <Trophy className="w-6 h-6 mb-1" />
+          <span>NVL {currentUser.level || 1}</span>
+        </div>
+        <div className="absolute right-0 top-0 w-32 h-full bg-gradient-to-l from-yellow-50 to-transparent"></div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <button
+          onClick={() => setView('GAMES_HUB')}
+          className="bg-gradient-to-br from-pink-500 to-rose-600 rounded-[2rem] p-6 text-white text-left relative overflow-hidden group hover:scale-[1.02] transition-all shadow-lg shadow-pink-200"
+        >
+          <Gamepad2 className="w-10 h-10 mb-4 bg-white/20 p-2 rounded-xl" />
+          <p className="font-display font-black text-xl mb-1">Minigames</p>
+          <p className="text-xs font-bold opacity-80">Jogar Agora</p>
+          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+        </button>
+
+        <button
+          onClick={() => setView('LEADERBOARD')}
+          className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-[2rem] p-6 text-white text-left relative overflow-hidden group hover:scale-[1.02] transition-all shadow-lg shadow-indigo-200"
+        >
+          <Trophy className="w-10 h-10 mb-4 bg-white/20 p-2 rounded-xl" />
+          <p className="font-display font-black text-xl mb-1">Ranking</p>
+          <p className="text-xs font-bold opacity-80">Ver Posição</p>
+          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+        </button>
+      </div>
+
+      <div>
+        <h3 className="text-xl font-display font-black text-slate-800 mb-6 flex items-center gap-2">
+          <BookOpen className="w-6 h-6 text-primary" /> Suas Missões
+        </h3>
+
+        <div className="grid gap-4">
+          {quizzes.length === 0 ? (
+            <p className="text-slate-400 font-bold text-center py-10 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+              Nenhuma tarefa disponível por enquanto.
+            </p>
+          ) : (
+            quizzes.map(quiz => {
+              const result = results.find(r => r.quizId === quiz.id);
+
+              return (
+                <div
+                  key={quiz.id}
+                  className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group hover:border-primary/30 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-md ${
+                        result
+                          ? 'bg-green-500 shadow-green-200'
+                          : 'bg-primary shadow-indigo-200'
+                      }`}
+                    >
+                      {result ? <CheckCircle className="w-8 h-8" /> : quiz.subject.charAt(0)}
+                    </div>
+                    <div>
+                      <h4 className="font-black text-slate-700 text-lg group-hover:text-primary transition-colors">
+                        {quiz.title}
+                      </h4>
+                      <p className="text-xs font-bold text-slate-400 uppercase">
+                        {quiz.subject} • {quiz.questions.length} Questões
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="w-full md:w-auto">
+                    {result ? (
+                      <div className="bg-green-50 text-green-700 px-4 py-2 rounded-xl font-black text-sm text-center border border-green-100">
+                        Feito! {result.score} pts
+                      </div>
+                    ) : (
+                      <Button
+                        onClick={() => onPlayQuiz(quiz)}
+                        size="sm"
+                        className="w-full md:w-auto"
+                      >
+                        Começar <Play className="w-4 h-4 ml-1 fill-current" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
+
 
 const App: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
@@ -2088,26 +2624,26 @@ const App: React.FC = () => {
         setQuizToEdit(null);
     };
 
-    const handleQuizComplete = (score: number) => {
-        if (user && activeQuiz) {
-            const result: QuizResult = {
-                studentId: user.id,
-                quizId: activeQuiz.id,
-                score,
-                maxScore: activeQuiz.questions.length * 10,
-                date: Date.now()
-            };
-            dataService.saveResult(result);
-            
-            const updatedUsers = dataService.getUsers();
-            const me = updatedUsers.find(u => u.id === user.id);
-            if (me) setUser(me);
-        }
-    };
+   const handleQuizComplete = async (score: number) => {
+  if (!user || !activeQuiz) return;
+
+  const result: QuizResult = {
+    studentId: user.id,
+    quizId: activeQuiz.id,
+    score,
+    maxScore: activeQuiz.questions.length * 10,
+    date: Date.now()
+  };
+
+  await addDoc(collection(db, 'results'), result);
+
+  await updateDoc(doc(db, 'users', user.id), {
+    points: increment(score)
+  });
+};
 
     const handleChangeView = (v: ViewState) => {
         if (v === 'CREATE_QUIZ' && view !== 'CREATE_QUIZ') {
-            // Reset edit state when navigating to Create Quiz from menu
             setQuizToEdit(null);
         }
         setView(v);
