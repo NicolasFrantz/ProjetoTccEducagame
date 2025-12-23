@@ -728,6 +728,7 @@ const LoginView = ({ onLogin }: { onLogin: (user: User) => void }) => {
   const [staffRoleType, setStaffRoleType] = useState<'TEACHER' | 'PARENT'>('TEACHER');
 
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -842,7 +843,7 @@ const LoginView = ({ onLogin }: { onLogin: (user: User) => void }) => {
   }
 };
 
-  const handleStaffRegister = async () => {
+ const handleStaffRegister = async () => {
   if (!regName || !regEmail || !regPassword) {
     setError('Preencha todos os campos.');
     return;
@@ -854,6 +855,8 @@ const LoginView = ({ onLogin }: { onLogin: (user: User) => void }) => {
   }
 
   setIsLoading(true);
+  setError('');
+  setSuccess('');
 
   try {
     const credential = await createUserWithEmailAndPassword(
@@ -876,8 +879,18 @@ const LoginView = ({ onLogin }: { onLogin: (user: User) => void }) => {
       newUser
     );
 
-    setUser(newUser);
-    setView('DASHBOARD_STAFF');
+    setSuccess('Conta criada com sucesso! Faça login para continuar.');
+
+    setRegName('');
+    setRegEmail('');
+    setRegPassword('');
+
+    setTimeout(() => {
+      setView('LOGIN');
+      setSuccess('');
+      setIsRegistering(false);
+      setTab('staff');
+    }, 1000);
 
   } catch (error) {
     console.error(error);
@@ -903,6 +916,7 @@ const LoginView = ({ onLogin }: { onLogin: (user: User) => void }) => {
             <p className="text-slate-500 font-bold mt-2">{tab === 'student' ? 'Plataforma para o Ensino Fundamental.' : (isRegistering ? 'Preencha os dados abaixo.' : 'Área para Pais e Professores.')}</p>
           </div>
           {error && <div className="bg-red-50 text-red-500 p-4 rounded-2xl font-bold text-center mb-6 text-sm border border-red-100 animate-bounce">{error}</div>}
+          {success && <div className="bg-green-50 text-green-500 p-4 rounded-2xl font-bold text-center mb-6 text-sm border border-green-100 animate-bounce">{success}</div>}
           {tab === 'student' ? (
             <div className="space-y-4">
               <div><label className="block text-xs font-black text-slate-400 uppercase mb-2 ml-2">Seu Nome Completo</label><div className="relative"><UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input value={studentName} onChange={e => setStudentName(e.target.value)} placeholder="Nome cadastrado na escola" className="w-full pl-12 pr-4 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:border-primary focus:bg-white transition-all outline-none font-bold text-slate-700" /></div></div>
