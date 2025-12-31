@@ -29,7 +29,7 @@
 <div align="left">
   <ul>
     <li>🎮 Jogos educativos interativos</li>
-    <li>🏆 Sistema de pontuação e recompensas</li>
+    <li>🏆 Sistema de pontuação</li>
     <li>📊 Acompanhamento do progresso da criança</li>
     <li>📚 Conteúdos educativos organizados por série</li>
     <li>👶 Interface amigável e adaptada para crianças</li>
